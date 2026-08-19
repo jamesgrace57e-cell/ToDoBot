@@ -11,53 +11,81 @@ load_dotenv()
 
 # Enable logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("BOT_TOKEN")
 
+if not TOKEN:
+    raise ValueError("No BOT_TOKEN found! Please set BOT_TOKEN environment variable.")
+
 # Database setup
 def init_db():
-    conn = sqlite3.connect("todo.db")
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS tasks
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_id INTEGER,
-                  task TEXT,
-                  completed INTEGER DEFAULT 0,
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("todo.db")
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS tasks
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user_id INTEGER,
+                      task TEXT,
+                      completed INTEGER DEFAULT 0,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        conn.commit()
+        conn.close()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}")
+        raise
 
 def add_task(user_id, task):
-    conn = sqlite3.connect("todo.db")
-    c = conn.cursor()
-    c.execute("INSERT INTO tasks (user_id, task) VALUES (?, ?)", (user_id, task))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("todo.db")
+        c = conn.cursor()
+        c.execute("INSERT INTO tasks (user_id, task) VALUES (?, ?)", (user_id, task))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Error adding task: {e}")
+        return False
 
 def get_tasks(user_id):
-    conn = sqlite3.connect("todo.db")
-    c = conn.cursor()
-    c.execute("SELECT id, task, completed FROM tasks WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
-    tasks = c.fetchall()
-    conn.close()
-    return tasks
+    try:
+        conn = sqlite3.connect("todo.db")
+        c = conn.cursor()
+        c.execute("SELECT id, task, completed FROM tasks WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+        tasks = c.fetchall()
+        conn.close()
+        return tasks
+    except Exception as e:
+        logger.error(f"Error getting tasks: {e}")
+        return []
 
 def complete_task(user_id, task_id):
-    conn = sqlite3.connect("todo.db")
-    c = conn.cursor()
-    c.execute("UPDATE tasks SET completed = 1 WHERE id = ? AND user_id = ?", (task_id, user_id))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("todo.db")
+        c = conn.cursor()
+        c.execute("UPDATE tasks SET completed = 1 WHERE id = ? AND user_id = ?", (task_id, user_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Error completing task: {e}")
+        return False
 
 def delete_task(user_id, task_id):
-    conn = sqlite3.connect("todo.db")
-    c = conn.cursor()
-    c.execute("DELETE FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("todo.db")
+        c = conn.cursor()
+        c.execute("DELETE FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting task: {e}")
+        return False
 
 # Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,8 +131,11 @@ async def add_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     task = " ".join(context.args)
     user_id = update.effective_user.id
-    add_task(user_id, task)
-    await update.message.reply_text(f"✅ Task added successfully!\n\n📝 *{task}*", parse_mode="Markdown")
+    
+    if add_task(user_id, task):
+        await update.message.reply_text(f"✅ Task added successfully!\n\n📝 *{task}*", parse_mode="Markdown")
+    else:
+        await update.message.reply_text("❌ Failed to add task. Please try again.")
 
 # List tasks command
 async def list_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,8 +176,10 @@ async def complete_task_command(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         task_id = int(context.args[0])
         user_id = update.effective_user.id
-        complete_task(user_id, task_id)
-        await update.message.reply_text(f"✅ Task #{task_id} marked as complete!")
+        if complete_task(user_id, task_id):
+            await update.message.reply_text(f"✅ Task #{task_id} marked as complete!")
+        else:
+            await update.message.reply_text(f"❌ Task #{task_id} not found or already completed.")
     except ValueError:
         await update.message.reply_text("⚠️ Please provide a valid task ID (number).")
 
@@ -159,8 +192,10 @@ async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         task_id = int(context.args[0])
         user_id = update.effective_user.id
-        delete_task(user_id, task_id)
-        await update.message.reply_text(f"🗑️ Task #{task_id} deleted successfully!")
+        if delete_task(user_id, task_id):
+            await update.message.reply_text(f"🗑️ Task #{task_id} deleted successfully!")
+        else:
+            await update.message.reply_text(f"❌ Task #{task_id} not found.")
     except ValueError:
         await update.message.reply_text("⚠️ Please provide a valid task ID (number).")
 
@@ -220,28 +255,46 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     elif query.data == "help":
-        await help_command(update, context)
+        # Need to send new message since we're in a callback
+        await query.message.reply_text(
+            "*📖 Available Commands:*\n\n"
+            "/start - Show main menu\n"
+            "/add [task] - Add a new task\n"
+            "/list - Show all tasks\n"
+            "/complete [id] - Mark task as complete\n"
+            "/delete [id] - Delete a task\n"
+            "/clear - Delete all completed tasks\n"
+            "/help - Show this help message",
+            parse_mode="Markdown"
+        )
+        await query.delete_message()
 
 # Main function
 def main():
-    init_db()
-    
-    # Build the application
-    application = Application.builder().token(TOKEN).build()
-    
-    # Add command handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("add", add_task_command))
-    application.add_handler(CommandHandler("list", list_tasks_command))
-    application.add_handler(CommandHandler("complete", complete_task_command))
-    application.add_handler(CommandHandler("delete", delete_task_command))
-    application.add_handler(CommandHandler("clear", clear_tasks_command))
-    application.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Start the bot
-    print("🤖 Bot is running...")
-    application.run_polling()
+    try:
+        init_db()
+        
+        # Build the application
+        application = Application.builder().token(TOKEN).build()
+        
+        # Add command handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("add", add_task_command))
+        application.add_handler(CommandHandler("list", list_tasks_command))
+        application.add_handler(CommandHandler("complete", complete_task_command))
+        application.add_handler(CommandHandler("delete", delete_task_command))
+        application.add_handler(CommandHandler("clear", clear_tasks_command))
+        application.add_handler(CallbackQueryHandler(button_callback))
+        
+        # Start the bot
+        logger.info("🤖 Bot is starting...")
+        print("🤖 Bot is running...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
+        raise
 
 if __name__ == "__main__":
     main()
