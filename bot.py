@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("BOT_TOKEN")
 
 if not TOKEN:
-    raise ValueError("No BOT_TOKEN found! Please set BOT_TOKEN environment variable.")
+    logger.error("No BOT_TOKEN found! Please set BOT_TOKEN environment variable.")
+    raise ValueError("No BOT_TOKEN found!")
 
 # Database setup
 def init_db():
@@ -255,8 +256,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     elif query.data == "help":
-        # Need to send new message since we're in a callback
-        await query.message.reply_text(
+        await query.edit_message_text(
             "*📖 Available Commands:*\n\n"
             "/start - Show main menu\n"
             "/add [task] - Add a new task\n"
@@ -267,7 +267,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/help - Show this help message",
             parse_mode="Markdown"
         )
-        await query.delete_message()
 
 # Main function
 def main():
@@ -290,7 +289,7 @@ def main():
         # Start the bot
         logger.info("🤖 Bot is starting...")
         print("🤖 Bot is running...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        application.run_polling()
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
