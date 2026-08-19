@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 import sqlite3
 from flask import Flask, request
@@ -11,7 +12,7 @@ load_dotenv()
 
 # Enable logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
@@ -131,10 +132,10 @@ async def add_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("⚠️ Please provide a task.\nExample: `/add Buy groceries`", parse_mode="Markdown")
         return
-    
+
     task = " ".join(context.args)
     user_id = update.effective_user.id
-    
+
     if add_task(user_id, task):
         await update.message.reply_text(f"✅ Task added successfully!\n\n📝 *{task}*", parse_mode="Markdown")
     else:
@@ -144,30 +145,30 @@ async def add_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     tasks = get_tasks(user_id)
-    
+
     if not tasks:
         await update.message.reply_text("🎉 No tasks found! Your to-do list is empty.")
         return
-    
+
     active_tasks = [t for t in tasks if t[2] == 0]
     completed_tasks = [t for t in tasks if t[2] == 1]
-    
+
     message = "*📋 Your Tasks:*\n\n"
-    
+
     if active_tasks:
         message += "*Active Tasks:*\n"
         for task in active_tasks:
             message += f"`{task[0]}`. {task[1]}\n"
     else:
         message += "✅ No active tasks.\n"
-    
+
     if completed_tasks:
         message += f"\n*Completed Tasks:* ({len(completed_tasks)})\n"
         for task in completed_tasks[:5]:
             message += f"`{task[0]}`. ~~{task[1]}~~\n"
         if len(completed_tasks) > 5:
             message += f"... and {len(completed_tasks) - 5} more\n"
-    
+
     await update.message.reply_text(message, parse_mode="Markdown")
 
 # Complete task command
@@ -175,7 +176,7 @@ async def complete_task_command(update: Update, context: ContextTypes.DEFAULT_TY
     if not context.args:
         await update.message.reply_text("⚠️ Please provide the task ID.\nExample: `/complete 1`", parse_mode="Markdown")
         return
-    
+
     try:
         task_id = int(context.args[0])
         user_id = update.effective_user.id
@@ -191,7 +192,7 @@ async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not context.args:
         await update.message.reply_text("⚠️ Please provide the task ID.\nExample: `/delete 1`", parse_mode="Markdown")
         return
-    
+
     try:
         task_id = int(context.args[0])
         user_id = update.effective_user.id
@@ -217,7 +218,7 @@ async def clear_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     if query.data == "add":
         await query.edit_message_text(
             "📝 *Add a Task*\n\n"
@@ -228,20 +229,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "list":
         user_id = update.effective_user.id
         tasks = get_tasks(user_id)
-        
+
         if not tasks:
             await query.edit_message_text("🎉 No tasks found! Your to-do list is empty.")
             return
-        
+
         active_tasks = [t for t in tasks if t[2] == 0]
         message = "*📋 Your Tasks:*\n\n"
-        
+
         if active_tasks:
             for task in active_tasks:
                 message += f"`{task[0]}`. {task[1]}\n"
         else:
             message += "✅ No active tasks."
-        
+
         await query.edit_message_text(message, parse_mode="Markdown")
     elif query.data == "complete":
         await query.edit_message_text(
@@ -274,7 +275,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = Flask(__name__)
 
 # Initialize bot application
-application = None
+application = Application.builder().token(TOKEN).build()
+
+# Add command handlers
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("help", help_command))
+application.add_handler(CommandHandler("add", add_task_command))
+application.add_handler(CommandHandler("list", list_tasks_command))
+application.add_handler(CommandHandler("complete", complete_task_command))
+application.add_handler(CommandHandler("delete", delete_task_command))
+application.add_handler(CommandHandler("clear", clear_tasks_command))
+application.add_handler(CallbackQueryHandler(button_callback))
+
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
@@ -287,44 +299,41 @@ async def webhook():
         logger.error(f"Webhook error: {e}")
         return '', 500
 
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
     return 'OK', 200
 
+
+async def setup_bot():
+    """Initialize the bot and register the webhook with Telegram"""
+    await application.initialize()
+    await application.start()
+
+    if WEBHOOK_URL:
+        webhook_full_url = f"{WEBHOOK_URL}/webhook"
+        logger.info(f"Setting webhook to: {webhook_full_url}")
+        await application.bot.set_webhook(url=webhook_full_url)
+    else:
+        logger.warning("WEBHOOK_URL not set! Bot will work but webhook won't be configured.")
+
+
 def main():
-    global application
-    
     try:
         init_db()
-        
-        # Build the application
-        application = Application.builder().token(TOKEN).build()
-        
-        # Add command handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("add", add_task_command))
-        application.add_handler(CommandHandler("list", list_tasks_command))
-        application.add_handler(CommandHandler("complete", complete_task_command))
-        application.add_handler(CommandHandler("delete", delete_task_command))
-        application.add_handler(CommandHandler("clear", clear_tasks_command))
-        application.add_handler(CallbackQueryHandler(button_callback))
-        
-        # Set webhook if URL is provided
-        if WEBHOOK_URL:
-            logger.info(f"Setting webhook to: {WEBHOOK_URL}/webhook")
-            application.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-        else:
-            logger.warning("WEBHOOK_URL not set! Bot will work but webhook won't be configured.")
-        
+
+        # Run async setup (initialize application + register webhook) before Flask starts
+        asyncio.run(setup_bot())
+
         # Start Flask server
         logger.info(f"🤖 Bot is starting on port {PORT}...")
         app.run(host='0.0.0.0', port=PORT)
-        
+
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
         raise
+
 
 if __name__ == "__main__":
     main()
