@@ -3,7 +3,7 @@ import logging
 import sqlite3
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -226,21 +226,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
     
-    app = Application.builder().token(TOKEN).build()
+    # Build the application
+    application = Application.builder().token(TOKEN).build()
     
     # Add command handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("add", add_task_command))
-    app.add_handler(CommandHandler("list", list_tasks_command))
-    app.add_handler(CommandHandler("complete", complete_task_command))
-    app.add_handler(CommandHandler("delete", delete_task_command))
-    app.add_handler(CommandHandler("clear", clear_tasks_command))
-    app.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("add", add_task_command))
+    application.add_handler(CommandHandler("list", list_tasks_command))
+    application.add_handler(CommandHandler("complete", complete_task_command))
+    application.add_handler(CommandHandler("delete", delete_task_command))
+    application.add_handler(CommandHandler("clear", clear_tasks_command))
+    application.add_handler(CallbackQueryHandler(button_callback))
     
     # Start the bot
     print("🤖 Bot is running...")
-    app.run_polling()
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
