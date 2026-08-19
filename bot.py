@@ -1,7 +1,7 @@
 import os
 import logging
 import sqlite3
-from datetime import datetime
+from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from dotenv import load_dotenv
@@ -17,9 +17,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("BOT_TOKEN")
+PORT = int(os.getenv("PORT", 8080))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # You'll set this in Railway
 
 if not TOKEN:
-    logger.error("No BOT_TOKEN found! Please set BOT_TOKEN environment variable.")
+    logger.error("No BOT_TOKEN found!")
     raise ValueError("No BOT_TOKEN found!")
 
 # Database setup
@@ -268,8 +270,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-# Main function
+# Flask app for webhook
+app = Flask(__name__)
+
+# Initialize bot application
+application = None
+
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    """Handle incoming updates"""
+    try:
+        update = Update.de_json(request.get_json(force=True), application.bot)
+        await application.process_update(update)
+        return '', 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return '', 500
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return 'OK', 200
+
 def main():
+    global application
+    
     try:
         init_db()
         
@@ -286,10 +311,16 @@ def main():
         application.add_handler(CommandHandler("clear", clear_tasks_command))
         application.add_handler(CallbackQueryHandler(button_callback))
         
-        # Start the bot
-        logger.info("🤖 Bot is starting...")
-        print("🤖 Bot is running...")
-        application.run_polling()
+        # Set webhook if URL is provided
+        if WEBHOOK_URL:
+            logger.info(f"Setting webhook to: {WEBHOOK_URL}/webhook")
+            application.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+        else:
+            logger.warning("WEBHOOK_URL not set! Bot will work but webhook won't be configured.")
+        
+        # Start Flask server
+        logger.info(f"🤖 Bot is starting on port {PORT}...")
+        app.run(host='0.0.0.0', port=PORT)
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
